@@ -1,29 +1,658 @@
 ---
 title: "HW 03"
-author: "INSERT YOUR NAME HERE"
-format:
+author: "Trevor Macdonald"
+
+format: 
   html:
+    toc: true
+    toc-depth: 2
+    code-fold: true
     embed-resources: true
-toc: true
+    theme: cosmo
+    fig-cap-location: bottom
+
+execute:
+  warning: false
+  message: false
+  error: false
 ---
+
+```{r}
+#| label: Setup
+
+# Load and install all potentially useful libraries for INFO 526
+if (!require("pacman")) install.packages("pacman")
+
+pacman::p_load(
+  # Core packages
+  tidyverse,      # dplyr, ggplot2, readr, etc.
+  here,           # for path handling
+  janitor,        # clean_names(), tabyl()
+  glue,           # string interpolation
+  lubridate,      # date handling
+  scales,         # axis and label formatting
+
+  # Plotting and themes
+  ggthemes,       # extra ggplot2 themes
+  ggrepel,        # better text labels
+  viridis,        # colorblind-friendly palettes
+  waffle,         # waffle plots
+  patchwork,      # combine ggplots
+  countdown,      # timer-style visualizations
+  ggspatial,      # north arrows and scale bars
+  ggridges,       # ridgeline plots
+  cowplot,        # plot annotation tools
+  ggpmisc,        # equations and stat labels
+
+  # Geospatial & mapping
+  sf,             # simple features
+  rnaturalearth,  # map data
+  rnaturalearthdata, # supplementary map data
+
+  # Animation
+  gganimate,      # animated plots
+  gifski,         # gif renderer
+  transformr,     # smooth transitions
+
+  # Accessibility
+  colorspace,     # palette construction, contrast
+
+  # Table display
+  gt,             # beautiful tables
+  gtExtras,       # custom themes and enhancements
+  reactable,      # interactive tables
+  DT,             # datatables
+
+  # Dashboard / Shiny
+  shiny,          # web app framework
+  shinydashboard, # dashboard layout
+  rmarkdown,       # for dynamic docs
+  
+  # Image 
+  jpeg,            # jpeg managment 
+  
+  # Misc
+  grid,
+  cowplot
+)
+
+# Set global ggplot2 theme
+ggplot2::theme_set(ggplot2::theme_minimal(base_size = 14))
+
+# Set global R output width
+options(width = 65)
+
+# Set global knitr chunk options
+knitr::opts_chunk$set(
+  fig.width = 7,
+  fig.asp = 0.618,   # golden ratio
+  fig.retina = 3,
+  fig.align = "center",
+  dpi = 300
+)
+```
 
 ## 1 - Du Bois challenge.
 
 ```{r}
-#| label: label-me-1
+
+#| label: Load and clean data
+
+# source of parchment background: https://pixabay.com/photos/paper-old-texture-parchment-1074131/
+
+# Parchment background
+paper <- readJPEG(here("data", "paper.jpg"))
+
+# Convert image to a raster object
+paper_raster <- rasterGrob(paper, width = unit(1, "npc"), height = unit(1, "npc"))
+
+# Read income data
+income <- read_csv(here("data", "income.csv"))
+
+# Clean
+income_long <- income |>
+  mutate(
+    Tax   = if_else(Class == "$100-200", 0.1, Tax),   # Correct values in tibble
+    Other = if_else(Class == "$100-200", 9.9, Other)  
+  ) |>
+  pivot_longer(
+    cols = Rent:Other,
+    names_to = "category",
+    values_to = "percent_income"
+  ) |>
+  filter(percent_income != 0) |>
+  mutate(
+    category = toupper(category),  # Capitalize category for legend
+    Class = fct_relevel(Class,  
+      "$1000 AND OVER",
+      "$750-1000",
+      "$500-750",
+      "$400-500",
+      "$300-400",
+      "$200-300",
+      "$100-200"
+    ),
+    category = fct_relevel(category,  # Reorder spending categories
+      "OTHER", "TAX", "CLOTHES", "FOOD", "RENT"
+    )
+  )
+# Add label color
+income_long <- income_long |>
+  mutate(
+    text_color_group = if_else(category == "RENT", "white", "black")
+  )
+```
+
+```{r}
+
+# Create plot object
+income_plot <- ggplot(
+  income_long,
+  aes(x = percent_income, y = Class, fill = category) 
+) +
+  # Bar chart
+  geom_bar(
+    stat = "identity",
+    position = "fill",
+    width = 0.7,
+    color = "black",
+    size = 0.2
+  ) +
+
+  # Main text labels 
+  geom_text(
+    data = income_long |> 
+      filter(!(Class == "$100-200" & category == "TAX")),
+    aes(label = paste0(percent_income, "%"), color = text_color_group),
+    position = position_fill(vjust = 0.5),
+    size = 4,
+    fontface = "bold",
+    show.legend = FALSE
+  ) +
+
+ # Special label for TAX 
+ # geom_text(
+ # data = income_long |> filter(Class == "$100-200" & category == "TAX"),
+ # aes(x = 0.85, y = 7, label = "0.1%"),
+ # inherit.aes = FALSE,
+ # color = "black",
+ # size = 4,
+ # fontface = "bold"
+ # ) +
+
+ # Optional: creates small arrow
+ # Source: https://stackoverflow.com/questions/38008863/how-to-draw-a-nice-arrow-in-ggplot2
+ #  geom_curve(
+ #   aes(x = 0.86, y = 7.1, xend = 0.9, yend = 7.2),
+ #   arrow = arrow(length = unit(0.20, "cm")),
+ #   curvature = -0.5,
+ #   color = "black",
+ #   linewidth = 0.25
+ # ) +
+
+  # Fill and text color
+  scale_fill_manual(
+    values = c(
+      "OTHER"   = "#cbdfbd",
+      "TAX"     = "#8e9aaf",
+      "CLOTHES" = "#d78879",
+      "FOOD"    = "#a08294",
+      "RENT"    = "black"
+    ),
+    guide = guide_legend(reverse = TRUE)
+  ) +
+  
+  scale_color_identity(
+    
+  ) +
+
+  # Theme
+  theme_void() +
+  theme(
+    legend.position = "top",
+    plot.background = element_blank(),
+    panel.background = element_blank(),
+    axis.text.y.left = element_text(size = 12, hjust = 1),
+    axis.text.y.right = element_text(size = 12),
+    #axis.title.y = element_text(size = 12, hjust = 1)
+    axis.title.y = element_text(size = 12, vjust = -3, hjust = 0)
+
+  ) +
+
+  labs(
+    title = "INCOME AND EXPENDITURE OF 150 NEGRO FAMILIES IN ATLANTA, GA., U.S.A.",
+    x = NULL,
+    #y = y_axis_label,
+    y = "CLASS"
+  )
+  
+# Add parchment background
+final_plot <- cowplot::ggdraw() +
+  draw_grob(paper_raster, 0, 0, 2, 2) +
+  draw_plot(income_plot)
+
+# Show plot
+final_plot
+
 
 ```
 
 ## 2 - COVID survey - interpret
 
+**Differences by Profession**\
+Nursing students exhibit higher variance in responses to question 1, aligning with my intuition that medical students generally have better access to information and the ability to interpret medical data more accurately. This trend reverses for Questions 4–6, where medical students show both a higher mean Likert score and greater variance in response to statements related to vaccine safety and the approval process. This could indicate that medical students access to clinical knowledge allows for a more informed response. It's important to note that none of the 90th percentiles exceed a Likert score of 3, suggesting that this disagreement might actually reflect neutrality rather than strong dissent.
+
+**Gender Differences**\
+There appears to be no meaningful difference between male and female students across all questions. I found this result surprising given that nursing is a predominantly female profession, while medical students are predominately male. This contradicts the profession based differences observed in my first response. How would the relationship change if a second analysis was done controlling for these factors?
+
 ```{r}
 #| label: label-me-2
-
 ```
 
 ## 3 - COVID survey - reconstruct
 
+```{r}
+#| label: load-clean-covid
+#| warning: false
+#| include: false
+
+# Load covid-survey data skipping row 1. row 2 will then become column names. 
+covid_survey <- read_csv(here("data", "covid-survey.csv" ), skip = 1)
+dim(covid_survey)# Dimension
+#glimpse(covid_survey)# View columns and type
+
+# Filter and count NA rows
+covid_survey_NA <- covid_survey |>
+  filter(if_all(-response_id, is.na)) # The - in front of response_id was debugged by GPT
+nrow(covid_survey_NA)# Count NA rows
+
+# Drop rows where all are NA
+covid_survey_filtered <- covid_survey |>
+ filter(!if_all(-response_id, is.na)) # The - in front of response_id was debugged by GPT
+dim(covid_survey_filtered) # Matched dim for dropped rows. 
+
+# Facter
+covid_survey_factored <- covid_survey_filtered |>
+  mutate(
+    exp_already_vax = recode_factor(exp_already_vax, `0` = "No", `1` = "Yes"),
+    exp_flu_vax     = recode_factor(exp_flu_vax,     `0` = "No", `1` = "Yes"),
+# Debugged numeric back tick instead of "" using GPT.
+    exp_profession = recode_factor(exp_profession, `0` = "Medical", `1` = "Nursing"),
+# Gender
+    exp_gender = recode_factor(
+      exp_gender,
+      `0` = "Male",
+      `1` = "Female",
+      `3` = "Non-binary",
+      `4` = "Prefer not to say"
+    ),
+# Race 
+    exp_race = recode_factor(
+      exp_race,
+      `1` = "American Indian / Alaskan Native",
+      `2` = "Asian",
+      `3` = "Black / African American",
+      `4` = "Pacific Islander",
+      `5` = "White"
+    ),
+
+# Hispanic/Non-Hispanic
+    exp_ethnicity = recode_factor(
+      exp_ethnicity,
+      `1` = "Hispanic / Latino",
+      `2` = "Non-Hispanic / Non-Latino"
+    ),
+
+# Age bin
+    exp_age_bin = recode_factor(
+      exp_age_bin,
+      `0`  = "<20",
+      `20` = "21–25",
+      `25` = "26–30",
+      `30` = ">30"
+    )
+)
+dim(covid_survey_factored)
+```
+
+```{r}
+#| label: Instructor provided code
+#| warning: false
+#| include: false
+covid_survey_longer <- covid_survey_factored |>
+  pivot_longer(
+    cols = starts_with("exp_"),
+    names_to = "explanatory",
+    values_to = "explanatory_value"
+  ) |>
+  filter(!is.na(explanatory_value)) |>
+  pivot_longer(
+    cols = starts_with("resp_"),
+    names_to = "response",
+    values_to = "response_value"
+  )
+
+# Check
+covid_survey_longer
+```
+
+```{r}
+#| label: covid_survey_summary_stats_by_group
+#| warning: false
+#| include: false
+
+covid_survey_summary_stats_by_group <- covid_survey_longer |>
+  group_by(explanatory, explanatory_value, response) |>
+  summarise(
+    mean = mean(response_value, na.rm = TRUE),
+    low  = quantile(response_value, 0.10, na.rm = TRUE),
+    high = quantile(response_value, 0.90, na.rm = TRUE),  
+    .groups = "drop" 
+    )
+
+# Check result
+covid_survey_summary_stats_by_group
+
+```
+
+```{r}
+#| label: covid_survey_summary_stats_all
+#| warning: false
+#| include: false
+
+covid_survey_summary_stats_all <- covid_survey_longer |>
+  group_by(response) |>
+  summarise(
+    mean = mean(response_value, na.rm = TRUE),       
+    low  = quantile(response_value, 0.10, na.rm = TRUE),  
+    high = quantile(response_value, 0.90, na.rm = TRUE),
+    explanatory = "All",            # Add fixed value directly
+    explanatory_value = factor("") ,# Empty factor as placeholder
+    #.groups = "drop"
+  ) |>
+  select(response, mean, low, high, explanatory, explanatory_value)  # Column order
+
+covid_survey_summary_stats_all
+
+```
+
+```{r}
+#| label: covid_survey_summary_stats
+#| warning: false
+
+
+# Combine grouped and overall summary stats into tibble
+covid_survey_summary_stats <- bind_rows(
+  covid_survey_summary_stats_by_group,
+  covid_survey_summary_stats_all
+) |> 
+  select(response, mean, low, high, explanatory, explanatory_value) # Order
+```
+
+```{r}
+#| label: Relabel and order
+
+# Relabel 
+covid_survey_summary_stats <- covid_survey_summary_stats |>
+  mutate(
+    response = recode(response,
+      "resp_safety"              = "Based on my understanding, I believe the vaccine is safe",
+      "resp_confidence_science"  = "I am confident in the scientific vetting process for the new COVID vaccines",
+      "resp_concern_safety"      = "I am concerned about the safety and side effects of the vaccine",
+      "resp_feel_safe_at_work"   = "Getting the vaccine will make me feel safer at work",
+      "resp_will_recommend"      = "I will recommend the vaccine to family, friends, and community members",
+      "resp_trust_info"          = "I trust the information that I have received about the vaccines",
+    ),
+
+    explanatory = recode(explanatory,
+      "exp_age_bin"         = "Age",               
+      "exp_gender"          = "Gender",
+      "exp_race"            = "Race",
+      "exp_ethnicity"       = "Ethnicity",
+      "exp_profession"      = "Profession",
+      "exp_already_vax"     = "Had COVID Vaccine",
+      "exp_flu_vax"         = "Had flu vaccine this year",
+    )
+  )
+
+covid_survey_summary_stats <- covid_survey_summary_stats |>
+  mutate(
+    explanatory = fct_relevel(
+      explanatory,
+      "All",
+      "Age",
+      "Gender",
+      "Race",
+      "Ethnicity",
+      "Profession",
+      "Had COVID Vaccine",
+      "Had flu vaccine this year",
+    )
+  )
+
+```
+
+```{r}
+#| label: plot
+ggplot(
+  covid_survey_summary_stats,
+  aes(x = mean, y = explanatory_value)
+) +
+  geom_point(size = 1) +
+  geom_errorbarh(
+    aes(xmin = low, xmax = high), 
+    height = 0.2,
+    linewidth = 0.4
+  ) +
+  facet_grid(
+    rows = vars(explanatory),
+    cols = vars(response),
+    scales = "free_y", # I could not get these to render properly.
+    space = "free_y",  # Found the solution in lecture slides.
+    labeller = labeller(
+      explanatory = label_wrap_gen(15),
+      response = label_wrap_gen(15)
+    )
+  ) +
+    theme_void() +
+theme(
+  axis.text.x = element_text(size = 9),
+  axis.title.x = element_text(size = 10),
+  axis.text.y = element_text(size = 9, hjust = 1),
+  strip.background = element_rect(fill = "gray90", color = "grey30"),
+    ) +
+  labs(
+    x = "Mean Likert score\n(Error bars show 10th–90th percentile)",
+  )
+
+```
 
 ## 4 - COVID survey - re-reconstruct
 
+```{r}
+#| label: re-Reconstruct 
+#| warning: false
+
+# 
+covid_survey_summary_stats_by_group <- covid_survey_longer |>
+  group_by(explanatory, explanatory_value, response) |>
+  summarise(
+    mean = mean(response_value, na.rm = TRUE),
+    low  = quantile(response_value, 0.25, na.rm = TRUE),
+    high = quantile(response_value, 0.75, na.rm = TRUE),  
+    .groups = "drop" 
+  )
+
+# Combine new grouped and overall summary stats 
+re_covid_survey_summary_stats <- bind_rows(
+  covid_survey_summary_stats_by_group,
+  covid_survey_summary_stats_all
+) |> 
+  select(response, mean, low, high, explanatory, explanatory_value) 
+
+# Relabel 
+re_covid_survey_summary_stats <- re_covid_survey_summary_stats |>
+  mutate(
+    response = recode(response,
+      "resp_safety"              = "Based on my understanding, I believe the vaccine is safe",
+      "resp_confidence_science"  = "I am confident in the scientific vetting process for the new COVID vaccines",
+      "resp_concern_safety"      = "I am concerned about the safety and side effects of the vaccine",
+      "resp_feel_safe_at_work"   = "Getting the vaccine will make me feel safer at work",
+      "resp_will_recommend"      = "I will recommend the vaccine to family, friends, and community members",
+      "resp_trust_info"          = "I trust the information that I have received about the vaccines",
+    ),
+
+    explanatory = recode(explanatory,
+      "exp_age_bin"         = "Age",               
+      "exp_gender"          = "Gender",
+      "exp_race"            = "Race",
+      "exp_ethnicity"       = "Ethnicity",
+      "exp_profession"      = "Profession",
+      "exp_already_vax"     = "Had COVID Vaccine",
+      "exp_flu_vax"         = "Had flu vaccine this year",
+    )
+  )
+
+re_covid_survey_summary_stats <- re_covid_survey_summary_stats |>
+  mutate(
+    explanatory = fct_relevel(
+      explanatory,
+      "All",
+      "Age",
+      "Gender",
+      "Race",
+      "Ethnicity",
+      "Profession",
+      "Had COVID Vaccine",
+      "Had flu vaccine this year",
+    )
+  )
+
+
+ggplot(
+  re_covid_survey_summary_stats,
+  aes(x = mean, y = explanatory_value)
+) +
+  geom_point(size = 1) +
+  geom_errorbarh(
+    aes(xmin = low, xmax = high), 
+    height = 0.2,
+    linewidth = 0.4
+  ) +
+  facet_grid(
+    rows = vars(explanatory),
+    cols = vars(response),
+    scales = "free_y", # I could not get these to render properly.
+    space = "free_y",  # Found the solution in lecture slides.
+    labeller = labeller(
+      explanatory = label_wrap_gen(15),
+      response = label_wrap_gen(15)
+    )
+  ) +
+    theme_void() +
+theme(
+  axis.text.x = element_text(size = 9),
+  axis.title.x = element_text(size = 10),
+  axis.text.y = element_text(size = 9, hjust = 1),
+  strip.background = element_rect(fill = "gray90", color = "grey30"),
+    ) +
+  labs(
+    x = "Mean Likert score\n(Error bars show 25th–75th percentile)",
+  )
+
+```
+
+#### **Effect of Changing Quantiles**
+
+Switching to the 25th–75th percentile unsurprisingly compresses the visual range of responses. What first looked like strong disagreement (higher variance) now appears as mild uncertainty or even neutrality. The central narrative holds across both versions of the analysis plot. The underlying relationship between distributions across profession and gender doesn’t change. If anything, nuance gets lost when using wider percentiles, so I’d argue the 25th–75th percentile is a more accurate representation in this case.
+
 ## 5 - COVID survey - another view
+
+```{r}
+# Convert to factor for plotting order
+covid_likert_plot_data <- covid_survey_longer |>
+  filter(!is.na(response_value)) |>  # Remove NA responses
+  mutate(
+    response_value = factor(response_value, levels = 1:5),
+    response = recode(response,
+      "resp_safety"              = "The vaccine is safe",
+      "resp_confidence_science" = "Trust the science",
+      "resp_concern_safety"     = "Concerned about safety",
+      "resp_feel_safe_at_work"  = "Feel safe at work",
+      "resp_will_recommend"     = "Will recommend vaccine",
+      "resp_trust_info"         = "Trust received information"
+    )
+  ) |>
+  group_by(response, response_value) |>
+  summarise(n = n(), .groups = "drop") |>
+  group_by(response) |>
+  mutate(pct = n / sum(n))
+
+
+```
+
+```{r}
+
+# Now plot without NA
+ggplot(covid_likert_plot_data, aes(
+  x = pct,
+  y = fct_rev(response),
+  fill = fct_rev(response_value)
+)) +
+  geom_col(width = 0.5, position = "fill") +
+  scale_x_continuous(
+    labels = scales::percent_format(),
+    limits = c(0, 1)  # Ensures x-axis starts at 0%
+  ) +
+  scale_fill_brewer(
+    palette = "YlGnBu",
+    direction = -1,
+    name = "Response",
+    labels = c(
+      "5" = "5 - Strongly Disagree",
+      "4" = "4 - Somewhat Disagree",
+      "3" = "3 - Neutral",
+      "2" = "2 - Somewhat Agree",
+      "1" = "1 - Strongly Agree"
+    )
+  ) +
+  labs(
+    x = "Percent of respondents",
+    y = NULL,
+    title = "100% Stacked Likert Bar Chart"
+  )
+
+```
+
+```{r}
+
+# Reccode into sentiment direction
+covid_likert_plot_data <- covid_likert_plot_data |>
+  mutate(
+    direction = case_when(
+      response_value %in% c("1", "2") ~ "Disagree",
+      response_value == "3" ~ "Neutral",
+      response_value %in% c("4", "5") ~ "Agree"
+    ),
+    signed_pct = case_when(
+      direction == "Disagree" ~ -pct,
+      TRUE ~ pct
+    )
+  )
+
+ggplot(covid_likert_plot_data, aes(
+  x = signed_pct,
+  y = fct_rev(response),
+  fill = fct_rev(response_value)
+)) +
+  geom_col(width = 0.6) +
+  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
+  scale_fill_brewer(palette = "YlGnBu", direction = -1) +
+  labs(
+    x = "Response distribution",
+    y = NULL,
+    fill = "Response",
+    title = "Diverging Likert Bar Chart",
+  )
+
+```
