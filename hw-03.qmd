@@ -20,83 +20,57 @@ execute:
 ```{r}
 #| label: Setup
 
-# Load and install all potentially useful libraries for INFO 526
+# Load and install only the libraries actually used in HW-03
 if (!require("pacman")) install.packages("pacman")
 
 pacman::p_load(
-  # Core packages
-  tidyverse,      # dplyr, ggplot2, readr, etc.
-  here,           # for path handling
-  janitor,        # clean_names(), tabyl()
-  glue,           # string interpolation
-  lubridate,      # date handling
-  scales,         # axis and label formatting
+  # Core tidyverse + file/path handling
+  tidyverse,    # dplyr, ggplot2, readr, etc.
+  here,         # relative file paths
+  janitor,      # clean_names()
+  glue,         # string interpolation
+  lubridate,    # dates
+  scales,       # percent_format(), comma()
 
-  # Plotting and themes
-  ggthemes,       # extra ggplot2 themes
-  ggrepel,        # better text labels
-  viridis,        # colorblind-friendly palettes
-  waffle,         # waffle plots
-  patchwork,      # combine ggplots
-  countdown,      # timer-style visualizations
-  ggspatial,      # north arrows and scale bars
-  ggridges,       # ridgeline plots
-  cowplot,        # plot annotation tools
-  ggpmisc,        # equations and stat labels
+  # Plotting & annotations
+  ggrepel,      # better geom_text labels
+  ggthemes,     # extra themes
+  cowplot,      # for draw_plot() and draw_grob()
+  ggpmisc,      # for stat_poly_eq etc. (optional but fine to keep)
+  colorspace,   # accessibility palettes
 
-  # Geospatial & mapping
-  sf,             # simple features
-  rnaturalearth,  # map data
-  rnaturalearthdata, # supplementary map data
+  # Image & raster
+  jpeg,         # to read JPEG parchment
+  grid,         # for rasterGrob()
 
-  # Animation
-  gganimate,      # animated plots
-  gifski,         # gif renderer
-  transformr,     # smooth transitions
-
-  # Accessibility
-  colorspace,     # palette construction, contrast
-
-  # Table display
-  gt,             # beautiful tables
-  gtExtras,       # custom themes and enhancements
-  reactable,      # interactive tables
-  DT,             # datatables
-
-  # Dashboard / Shiny
-  shiny,          # web app framework
-  shinydashboard, # dashboard layout
-  rmarkdown,       # for dynamic docs
-  
-  # Image 
-  jpeg,            # jpeg managment 
-  
-  # Misc
-  grid,
-  cowplot
+  # Likert & challenge-specific
+  dsbox,        # gglikert()
+  ggstats       # used in setup/testing
 )
 
-# Set global ggplot2 theme
+# Global plot style
 ggplot2::theme_set(ggplot2::theme_minimal(base_size = 14))
 
-# Set global R output width
+# Console display width
 options(width = 65)
 
-# Set global knitr chunk options
+# Global chunk settings
 knitr::opts_chunk$set(
   fig.width = 7,
-  fig.asp = 0.618,   # golden ratio
+  fig.asp = 0.618,
   fig.retina = 3,
   fig.align = "center",
   dpi = 300
 )
+
 ```
 
 ## 1 - Du Bois challenge.
 
 ```{r}
-
 #| label: Load and clean data
+#| message: false
+#| warning: false
 
 # source of parchment background: https://pixabay.com/photos/paper-old-texture-parchment-1074131/
 
@@ -109,12 +83,20 @@ paper_raster <- rasterGrob(paper, width = unit(1, "npc"), height = unit(1, "npc"
 # Read income data
 income <- read_csv(here("data", "income.csv"))
 
+#Fix Label downstream
+income <- income |> 
+  mutate(Class = recode(Class,
+    "$1000 AND OVER" = "$1,000 AND OVER",
+    "$750-1000" = "$750-1,000"
+  ))
+
 # Clean
 income_long <- income |>
   mutate(
-    Tax   = if_else(Class == "$100-200", 0.1, Tax),   # Correct values in tibble
-    Other = if_else(Class == "$100-200", 9.9, Other)  
-  ) |>
+    # Fix specific values for bottom class
+    Tax   = if_else(Class == "$100-200", 0.1, Tax),
+    Other = if_else(Class == "$100-200", 9.9, Other)
+  )|>
   pivot_longer(
     cols = Rent:Other,
     names_to = "category",
@@ -124,8 +106,8 @@ income_long <- income |>
   mutate(
     category = toupper(category),  # Capitalize category for legend
     Class = fct_relevel(Class,  
-      "$1000 AND OVER",
-      "$750-1000",
+      "$1,000 AND OVER",
+      "$750-1,000",
       "$500-750",
       "$400-500",
       "$300-400",
@@ -144,98 +126,134 @@ income_long <- income_long |>
 ```
 
 ```{r}
+#| label: Du bois plot
+#| message: false
+#| warning: false
 
-# Create plot object
+# Inspired by: https://rpubs.com/leeolney/duboischallenge
+
+# Main plot object
 income_plot <- ggplot(
-  income_long,
-  aes(x = percent_income, y = Class, fill = category) 
+  income_long,                                 # Use the cleaned long-format income data
+  aes(x = percent_income, y = Class, fill = category)  # Stack percentage by category within each income Class
 ) +
-  # Bar chart
+
+  # Bar Chart Object
   geom_bar(
-    stat = "identity",
-    position = "fill",
-    width = 0.7,
-    color = "black",
-    size = 0.2
+    stat = "identity",           # Use actual percent_income values
+    position = "fill",          
+    width = 0.5,                
+    color = "black",             # Outline
+    size = 0.2                 
   ) +
 
-  # Main text labels 
+  # Percentage centered inside bar labels
   geom_text(
     data = income_long |> 
-      filter(!(Class == "$100-200" & category == "TAX")),
-    aes(label = paste0(percent_income, "%"), color = text_color_group),
-    position = position_fill(vjust = 0.5),
-    size = 4,
-    fontface = "bold",
-    show.legend = FALSE
+      filter(!(Class == "$100-200" & category == "TAX")),  # Exclude 0.1% label
+    aes(label = paste0(percent_income, "%"), color = text_color_group),  # White or black depending on fill
+    position = position_fill(vjust = 0.5),  # Center in block
+    size = 3,                               
+    fontface = "bold",                     
+    show.legend = FALSE                    # Do not show in legend
   ) +
 
- # Special label for TAX 
- # geom_text(
- # data = income_long |> filter(Class == "$100-200" & category == "TAX"),
- # aes(x = 0.85, y = 7, label = "0.1%"),
- # inherit.aes = FALSE,
- # color = "black",
- # size = 4,
- # fontface = "bold"
- # ) +
-
- # Optional: creates small arrow
- # Source: https://stackoverflow.com/questions/38008863/how-to-draw-a-nice-arrow-in-ggplot2
- #  geom_curve(
- #   aes(x = 0.86, y = 7.1, xend = 0.9, yend = 7.2),
- #   arrow = arrow(length = unit(0.20, "cm")),
- #   curvature = -0.5,
- #   color = "black",
- #   linewidth = 0.25
- # ) +
-
-  # Fill and text color
-  scale_fill_manual(
-    values = c(
-      "OTHER"   = "#cbdfbd",
-      "TAX"     = "#8e9aaf",
-      "CLOTHES" = "#d78879",
-      "FOOD"    = "#a08294",
-      "RENT"    = "black"
-    ),
-    guide = guide_legend(reverse = TRUE)
-  ) +
+  # Right side y-axis 
+  geom_text(
+  data = income_long |> distinct(Class, Average_Income),
+  aes(x = 1.07, y = Class, label = paste0("$", comma(Average_Income, accuracy = 1))),
+  inherit.aes = FALSE,
+  hjust = 0,
+  size = 4,
+  family = "mono",
+  color = "black"
+) +
   
-  scale_color_identity(
-    
+  # Left side y-axis 
+  geom_text(
+  data = income_long |> distinct(Class),
+  aes(x = -0.1, y = Class, label = Class),
+  inherit.aes = FALSE,
+  hjust = 1,
+  size = 4,
+  family = "mono",
+  color = "black"
+) +
+
+  # Left y-axis Class 
+  annotate(
+    "text",
+    x = -0.1,   # Slightly left of the start of bars
+    y = 7.7,      # Just above topmost row (manual adjustment)
+    label = "CLASS",
+    hjust = 1,    # Left-aligned
+    vjust = 1,    # Top-aligned
+    size = 4,
+    family = "mono",
+    color = "black"
   ) +
 
-  # Theme
-  theme_void() +
-  theme(
-    legend.position = "top",
-    plot.background = element_blank(),
-    panel.background = element_blank(),
-    axis.text.y.left = element_text(size = 12, hjust = 1),
-    axis.text.y.right = element_text(size = 12),
-    #axis.title.y = element_text(size = 12, hjust = 1)
-    axis.title.y = element_text(size = 12, vjust = -3, hjust = 0)
-
+  # Right y-axis Average income 
+  annotate(
+    "text",
+    x = 1.07,     # Align with income labels
+    y = 8,       
+    label = "AVERAGE\nINCOME",  
+    hjust = 0,
+    vjust = 1,
+    size = 4,
+    family = "mono",
+    color = "black"
   ) +
+
+  # Manual color to match example 
+  scale_fill_manual(
+    name = NULL,
+    values = c(
+      "OTHER"   = "#cbdfbd",   # Greenish
+      "TAX"     = "#8e9aaf",   # Blue-gray
+      "CLOTHES" = "#d78879",   # Coral
+      "FOOD"    = "#a08294",   # Purple-gray
+      "RENT"    = "black"      # Black for rent
+    ),
+    guide = guide_legend(reverse = TRUE)  # Reverse order to match bar stacking
+  ) +
+
+  scale_color_manual(
+    values = c("black" = "black", "white" = "white") # Need to define for color text_color_group
+) +
+  # Scaling
+  scale_x_continuous(
+    expand = expansion(mult = c(0.25, 0.25))  # Add space left/right of bars
+  ) +
+
+theme_void() + # Void and add back what is needed
+theme(
+  legend.position = "top",    
+  legend.box.margin = margin(t = 20),  # Push legend down from top of plot
+  plot.title = element_text(
+    hjust = 0.5,
+    face = "bold"
+  )
+) +
 
   labs(
     title = "INCOME AND EXPENDITURE OF 150 NEGRO FAMILIES IN ATLANTA, GA., U.S.A.",
     x = NULL,
-    #y = y_axis_label,
-    y = "CLASS"
+    y = NULL
   )
-  
-# Add parchment background
-final_plot <- cowplot::ggdraw() +
+
+# Plot with parchment object
+final_plot <- cowplot::ggdraw(xlim = c(0, 1), ylim = c(0, 1), clip = "off") +
   draw_grob(paper_raster, 0, 0, 2, 2) +
   draw_plot(income_plot)
+            
 
-# Show plot
 final_plot
 
-
 ```
+
+This plot was VERY difficult to reproduce.
 
 ## 2 - COVID survey - interpret
 
@@ -245,21 +263,18 @@ Nursing students exhibit higher variance in responses to question 1, aligning wi
 **Gender Differences**\
 There appears to be no meaningful difference between male and female students across all questions. I found this result surprising given that nursing is a predominantly female profession, while medical students are predominately male. This contradicts the profession based differences observed in my first response. How would the relationship change if a second analysis was done controlling for these factors?
 
-```{r}
-#| label: label-me-2
-```
-
 ## 3 - COVID survey - reconstruct
 
 ```{r}
 #| label: load-clean-covid
+#| message: false
 #| warning: false
-#| include: false
+
 
 # Load covid-survey data skipping row 1. row 2 will then become column names. 
 covid_survey <- read_csv(here("data", "covid-survey.csv" ), skip = 1)
 dim(covid_survey)# Dimension
-#glimpse(covid_survey)# View columns and type
+#glimpse(covid_survey) # View columns and type
 
 # Filter and count NA rows
 covid_survey_NA <- covid_survey |>
@@ -271,7 +286,7 @@ covid_survey_filtered <- covid_survey |>
  filter(!if_all(-response_id, is.na)) # The - in front of response_id was debugged by GPT
 dim(covid_survey_filtered) # Matched dim for dropped rows. 
 
-# Facter
+# Factor
 covid_survey_factored <- covid_survey_filtered |>
   mutate(
     exp_already_vax = recode_factor(exp_already_vax, `0` = "No", `1` = "Yes"),
@@ -295,14 +310,12 @@ covid_survey_factored <- covid_survey_filtered |>
       `4` = "Pacific Islander",
       `5` = "White"
     ),
-
 # Hispanic/Non-Hispanic
     exp_ethnicity = recode_factor(
       exp_ethnicity,
       `1` = "Hispanic / Latino",
       `2` = "Non-Hispanic / Non-Latino"
     ),
-
 # Age bin
     exp_age_bin = recode_factor(
       exp_age_bin,
@@ -317,8 +330,9 @@ dim(covid_survey_factored)
 
 ```{r}
 #| label: Instructor provided code
+#| message: false
 #| warning: false
-#| include: false
+
 covid_survey_longer <- covid_survey_factored |>
   pivot_longer(
     cols = starts_with("exp_"),
@@ -333,13 +347,13 @@ covid_survey_longer <- covid_survey_factored |>
   )
 
 # Check
-covid_survey_longer
+#covid_survey_longer
 ```
 
 ```{r}
 #| label: covid_survey_summary_stats_by_group
+#| message: false
 #| warning: false
-#| include: false
 
 covid_survey_summary_stats_by_group <- covid_survey_longer |>
   group_by(explanatory, explanatory_value, response) |>
@@ -351,14 +365,15 @@ covid_survey_summary_stats_by_group <- covid_survey_longer |>
     )
 
 # Check result
-covid_survey_summary_stats_by_group
+#covid_survey_summary_stats_by_group
 
 ```
 
 ```{r}
 #| label: covid_survey_summary_stats_all
+#| message: false
 #| warning: false
-#| include: false
+
 
 covid_survey_summary_stats_all <- covid_survey_longer |>
   group_by(response) |>
@@ -367,17 +382,19 @@ covid_survey_summary_stats_all <- covid_survey_longer |>
     low  = quantile(response_value, 0.10, na.rm = TRUE),  
     high = quantile(response_value, 0.90, na.rm = TRUE),
     explanatory = "All",            # Add fixed value directly
-    explanatory_value = factor("") ,# Empty factor as placeholder
+    explanatory_value = factor("") ,# Placeholder
     #.groups = "drop"
   ) |>
   select(response, mean, low, high, explanatory, explanatory_value)  # Column order
 
-covid_survey_summary_stats_all
+#Check
+#covid_survey_summary_stats_all
 
 ```
 
 ```{r}
 #| label: covid_survey_summary_stats
+#| message: false
 #| warning: false
 
 
@@ -391,6 +408,8 @@ covid_survey_summary_stats <- bind_rows(
 
 ```{r}
 #| label: Relabel and order
+#| message: false
+#| warning: false
 
 # Relabel 
 covid_survey_summary_stats <- covid_survey_summary_stats |>
@@ -434,6 +453,9 @@ covid_survey_summary_stats <- covid_survey_summary_stats |>
 
 ```{r}
 #| label: plot
+#| message: false
+#| warning: false
+
 ggplot(
   covid_survey_summary_stats,
   aes(x = mean, y = explanatory_value)
@@ -464,7 +486,6 @@ theme(
   labs(
     x = "Mean Likert score\n(Error bars show 10th–90th percentile)",
   )
-
 ```
 
 ## 4 - COVID survey - re-reconstruct
@@ -473,7 +494,6 @@ theme(
 #| label: re-Reconstruct 
 #| warning: false
 
-# 
 covid_survey_summary_stats_by_group <- covid_survey_longer |>
   group_by(explanatory, explanatory_value, response) |>
   summarise(
@@ -528,7 +548,6 @@ re_covid_survey_summary_stats <- re_covid_survey_summary_stats |>
     )
   )
 
-
 ggplot(
   re_covid_survey_summary_stats,
   aes(x = mean, y = explanatory_value)
@@ -562,97 +581,174 @@ theme(
 
 ```
 
-#### **Effect of Changing Quantiles**
+#### **Changing Quartile**
 
 Switching to the 25th–75th percentile unsurprisingly compresses the visual range of responses. What first looked like strong disagreement (higher variance) now appears as mild uncertainty or even neutrality. The central narrative holds across both versions of the analysis plot. The underlying relationship between distributions across profession and gender doesn’t change. If anything, nuance gets lost when using wider percentiles, so I’d argue the 25th–75th percentile is a more accurate representation in this case.
 
 ## 5 - COVID survey - another view
 
 ```{r}
-# Convert to factor for plotting order
+#| label: clean sort
+#| message: false
+#| warning: false
+
+# source: https://larmarange.github.io/ggstats/articles/gglikert.html
+
+# Recode Likert responses and compute percentage
 covid_likert_plot_data <- covid_survey_longer |>
-  filter(!is.na(response_value)) |>  # Remove NA responses
+  filter(!is.na(response_value)) |>
   mutate(
-    response_value = factor(response_value, levels = 1:5),
+    response_value = factor(response_value, levels = c("1", "2", "3", "4", "5")),
     response = recode(response,
-      "resp_safety"              = "The vaccine is safe",
+      "resp_safety"             = "The vaccine is safe",
       "resp_confidence_science" = "Trust the science",
       "resp_concern_safety"     = "Concerned about safety",
       "resp_feel_safe_at_work"  = "Feel safe at work",
       "resp_will_recommend"     = "Will recommend vaccine",
       "resp_trust_info"         = "Trust received information"
+    ),
+    response = fct_relevel(response,  
+      "Concerned about safety",
+      "The vaccine is safe",
+      "Trust the science",
+      "Trust received information",
+      "Feel safe at work",
+      "Will recommend vaccine"
     )
-  ) |>
+  ) |> # Used GPT to debug this logic. 
   group_by(response, response_value) |>
   summarise(n = n(), .groups = "drop") |>
   group_by(response) |>
-  mutate(pct = n / sum(n))
+  mutate(percent = n / sum(n)) |>
+  ungroup()
 
-
-```
-
-```{r}
-
-# Now plot without NA
-ggplot(covid_likert_plot_data, aes(
-  x = pct,
-  y = fct_rev(response),
-  fill = fct_rev(response_value)
-)) +
-  geom_col(width = 0.5, position = "fill") +
-  scale_x_continuous(
-    labels = scales::percent_format(),
-    limits = c(0, 1)  # Ensures x-axis starts at 0%
-  ) +
-  scale_fill_brewer(
-    palette = "YlGnBu",
-    direction = -1,
-    name = "Response",
-    labels = c(
-      "5" = "5 - Strongly Disagree",
-      "4" = "4 - Somewhat Disagree",
-      "3" = "3 - Neutral",
-      "2" = "2 - Somewhat Agree",
-      "1" = "1 - Strongly Agree"
-    )
-  ) +
-  labs(
-    x = "Percent of respondents",
-    y = NULL,
-    title = "100% Stacked Likert Bar Chart"
-  )
-
-```
-
-```{r}
-
-# Reccode into sentiment direction
-covid_likert_plot_data <- covid_likert_plot_data |>
+# Wide format for gglikert()
+covid_survey_wide <- covid_survey_longer |>
   mutate(
-    direction = case_when(
-      response_value %in% c("1", "2") ~ "Disagree",
-      response_value == "3" ~ "Neutral",
-      response_value %in% c("4", "5") ~ "Agree"
+    response_value = factor(
+      as.character(response_value),
+      levels = c("1", "2", "3", "4", "5")
     ),
-    signed_pct = case_when(
-      direction == "Disagree" ~ -pct,
-      TRUE ~ pct
-    )
+    response = recode(response,
+      "resp_safety"             = "The vaccine is safe",
+      "resp_confidence_science" = "Trust the science",
+      "resp_concern_safety"     = "Concerned about safety",
+      "resp_feel_safe_at_work"  = "Feel safe at work",
+      "resp_will_recommend"     = "Will recommend vaccine",
+      "resp_trust_info"         = "Trust received information"
+    ),
+    response = fct_relevel(response,  
+      "Concerned about safety",
+      "The vaccine is safe",
+      "Trust the science",
+      "Trust received information",
+      "Feel safe at work",
+      "Will recommend vaccine"
+    ),
+    response = fct_rev(response) # Fix stacking downstream
+  ) |>
+  group_by(response_id, response) |>
+  slice(1) |>  # Used GPT to debug this pipeline
+  ungroup() |>
+  select(response_id, response, response_value) |>
+  pivot_wider(
+    names_from = response,
+    values_from = response_value
   )
+```
+
+```{r}
+#| label: Diverging Barplot
+#| message: false
+#| warning: false
+
+gglikert(
+  data = select(covid_survey_wide, -response_id),
+  add_labels = FALSE,          # Remove percentage labels
+  #reverse_likert = FALSE,      # Reverse Stack
+  add_totals = FALSE            # Remove Total labels
+) +
+  scale_fill_manual(
+    values = c(
+      "1" = "#FFFFCC",
+      "2" = "#A1DAB4",
+      "3" = "#41B6C4",
+      "4" = "#2C7FB8",
+      "5" = "#253494"
+    ),
+    labels = c(
+      "1" = "1 – Strongly Agree",
+      "2" = "2 – Somewhat Agree",
+      "3" = "3 – Neutral",
+      "4" = "4 – Somewhat Disagree",
+      "5" = "5 – Strongly Disagree"
+    ),
+    name = NULL
+  ) +
+  labs(
+    title = "COVID Vaccine Survey Response",
+    subtitle = "Diverging Bar Chart Likert Scale",
+    x = NULL, 
+    y = NULL
+  ) +
+  theme_minimal(base_size = 14 # Not sure why it didn't use global settings
+  ) + 
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom"
+  )
+```
+
+**5a** A diverging stacked bar chart showing responses to six COVID-19 vaccine statements on a Likert scale. Each horizontal bar is divided into five segments representing responses from "1 – Strongly Agree" to "5 – Strongly Disagree". The color palette chosen is an accessibility friendly light yellow to dark blue. Agreement responses extend right from center and disagreement responses extend left. The Data shows strong sentiment for trust and safety. The last response "concerned about safety" reinforces the conclusion drawn by the other questions.
+
+```{r}
+#| label: 100 Bar Chart
+#| message: false
+#| warning: false
 
 ggplot(covid_likert_plot_data, aes(
-  x = signed_pct,
-  y = fct_rev(response),
-  fill = fct_rev(response_value)
+  x = percent,
+  y = response,
+  fill = response_value
 )) +
-  geom_col(width = 0.6) +
-  scale_x_continuous(labels = scales::percent_format(accuracy = 1)) +
-  scale_fill_brewer(palette = "YlGnBu", direction = -1) +
+  geom_col(
+    width = 0.7,
+    position = position_fill(reverse = TRUE)  # Reverse stack direction to match legend 1-5
+  ) +
+  scale_x_continuous(
+    labels = scales::percent_format()
+  ) +
+scale_fill_manual(
+    values = c(
+      "1" = "#FFFFCC",
+      "2" = "#A1DAB4",
+      "3" = "#41B6C4",
+      "4" = "#2C7FB8",
+      "5" = "#253494"
+    ),
+    labels = c(
+      "1" = "1 – Strongly Agree",
+      "2" = "2 – Somewhat Agree",
+      "3" = "3 – Neutral",
+      "4" = "4 – Somewhat Disagree",
+      "5" = "5 – Strongly Disagree"
+    ),
+    name = NULL
+  ) +
   labs(
-    x = "Response distribution",
-    y = NULL,
-    fill = "Response",
-    title = "Diverging Likert Bar Chart",
+    title = "Covid Vaccine Survey Response",
+    subtitle = " 100% Bar Chart Likert Scale",
+    x = NULL,
+    y = NULL
+  ) +
+  theme(
+    plot.title = element_text(face = "bold", hjust = 0.5),
+    plot.subtitle = element_text(hjust = 0.5),
+    legend.position = "bottom"
   )
-
 ```
+
+**5b** 100% Bar Chart showing responses to six COVID-19 vaccine statements on a Likert scale. Each horizontal bar is divided into five segments representing responses from "1 – Strongly Agree" to "5 – Strongly Disagree". The color palette chosen is an accessibility friendly light yellow to dark blue. Agreement responses extend right from center and disagreement responses extend left. The Chart shows the larger variance in vaccine safety concerns while all other responses seem to have a concentration of responses in 1-2 range.
+
+**5c** Both charts visualize the same Likert data. The diverging bar chart emphasizes the direction of responses by centering the neutral response, making it easier to detect skew toward agreement or disagreement. The 100% stacked bar chart standardizes each row’s total, allowing clearer comparison of proportional distributions across all response levels. The diverging chart highlights polarity and contentiousness, while the 100% Bar chart better supports detailed breakdowns.
